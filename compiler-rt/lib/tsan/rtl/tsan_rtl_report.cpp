@@ -822,6 +822,27 @@ void ReportRace(ThreadState *thr, RawShadow *shadow_mem, Shadow cur, Shadow old,
   OutputReport(thr, rep);
 }
 
+void ReportTransactionConflict(ThreadState *thr, uptr pc, uptr addr, uptr size,
+                               AcquireResult conflict) {
+  if (conflict == AcquireResult::Ok)
+    return;
+  const ReportType typ = conflict == AcquireResult::IncreasingCycle
+                             ? ReportTypeTransactionIncreasingCycle
+                             : ReportTypeTransactionCombinedViewCycle;
+  if (!ShouldReport(thr, typ))
+    return;
+
+  ThreadRegistryLock registry_lock(&ctx->thread_registry);
+  ScopedReport rep(typ);
+
+  VarSizeStackTrace trace;
+  ObtainCurrentStack(thr, pc, &trace);
+  rep.AddStack(trace, true);
+  rep.AddThread(thr->tid);
+  rep.AddLocation(addr, size);
+  OutputReport(thr, rep);
+}
+
 void PrintCurrentStack(ThreadState *thr, uptr pc) {
   VarSizeStackTrace trace;
   ObtainCurrentStack(thr, pc, &trace);

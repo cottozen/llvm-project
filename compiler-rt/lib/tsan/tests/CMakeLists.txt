@@ -55,6 +55,11 @@ if(APPLE)
   add_weak_symbols("sanitizer_common" TSAN_UNITTEST_LINK_FLAGS)
 else()
   list(APPEND TSAN_UNITTEST_LINK_FLAGS -fsanitize=thread)
+  if(COMPILER_RT_STANDALONE_BUILD)
+    # Use the runtime under test, including local monitor changes.
+    list(APPEND TSAN_UNITTEST_LINK_FLAGS
+      "-resource-dir=${COMPILER_RT_OUTPUT_DIR}")
+  endif()
   list(APPEND TSAN_UNITTEST_LINK_FLAGS -lm)
   list(APPEND TSAN_UNITTEST_LINK_FLAGS ${COMPILER_RT_TEST_LIBDISPATCH_CFLAGS})
 endif()
@@ -86,6 +91,14 @@ macro(add_tsan_unittest testname)
         DEPS ${TSAN_DEPS}
         CFLAGS ${TSAN_UNITTEST_CFLAGS}
         LINK_FLAGS ${TSAN_UNITTEST_LINK_FLAGS})
+      add_dependencies(T${testname}-${arch}-Test tsan)
+      if(COMPILER_RT_STANDALONE_BUILD AND NOT APPLE)
+        add_custom_command(
+          OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_CFG_INTDIR}/${testname}-${arch}-Test"
+          APPEND DEPENDS
+            $<TARGET_FILE:clang_rt.tsan-${arch}>
+            $<TARGET_FILE:clang_rt.tsan_cxx-${arch}>)
+      endif()
     endforeach()
   endif()
 endmacro()

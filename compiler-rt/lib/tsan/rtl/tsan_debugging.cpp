@@ -37,6 +37,10 @@ static const char *ReportTypeDescription(ReportType typ) {
     case ReportTypeDeadlock: return "lock-order-inversion";
     case ReportTypeMutexHeldWrongContext:
       return "mutex-held-in-wrong-context";
+    case ReportTypeTransactionIncreasingCycle:
+      return "transaction-increasing-cycle";
+    case ReportTypeTransactionCombinedViewCycle:
+      return "transaction-combined-view-cycle";
       // No default case so compiler warns us if we miss one
   }
   UNREACHABLE("missing case");

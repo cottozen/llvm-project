@@ -1,0 +1,2 @@
+// Shared monitor test inputs, configured by CMake.
+#define TSAN_MONITOR_TRACE_DIR "@TSAN_MONITOR_TRACE_DIR@"

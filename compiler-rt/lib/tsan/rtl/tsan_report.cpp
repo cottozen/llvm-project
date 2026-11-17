@@ -95,6 +95,10 @@ static const char *ReportTypeString(ReportType typ, uptr tag) {
       return "lock-order-inversion (potential deadlock)";
     case ReportTypeMutexHeldWrongContext:
       return "mutex held in the wrong context";
+    case ReportTypeTransactionIncreasingCycle:
+      return "transaction conflict (increasing cycle)";
+    case ReportTypeTransactionCombinedViewCycle:
+      return "transaction conflict (cycle in combined view)";
       // No default case so compiler warns us if we miss one
   }
   UNREACHABLE("missing case");

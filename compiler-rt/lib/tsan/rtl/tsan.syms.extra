@@ -1,3 +1,5 @@
+__tsan_transaction_begin
+__tsan_transaction_end
 __tsan_init
 __tsan_flush_memory
 __tsan_read*

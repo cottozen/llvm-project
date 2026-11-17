@@ -36,6 +36,7 @@ set(TSAN_SOURCES
   tsan_malloc_mac.cpp
   tsan_md5.cpp
   tsan_mman.cpp
+  tsan_monitor.cpp
   tsan_mutexset.cpp
   tsan_report.cpp
   tsan_rtl.cpp
@@ -94,6 +95,7 @@ set(TSAN_HEADERS
   tsan_interface_ann.h
   tsan_interface_java.h
   tsan_mman.h
+  tsan_monitor.h
   tsan_mutexset.h
   tsan_platform.h
   tsan_ppc_regs.h

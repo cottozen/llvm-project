@@ -72,6 +72,8 @@ static const char *conv(ReportType typ) {
     case ReportTypeUseAfterFree:
     case ReportTypeVptrUseAfterFree:
     case ReportTypeExternalRace:
+    case ReportTypeTransactionIncreasingCycle:
+    case ReportTypeTransactionCombinedViewCycle:
       return kSuppressionRace;
     case ReportTypeThreadLeak:
       return kSuppressionThread;

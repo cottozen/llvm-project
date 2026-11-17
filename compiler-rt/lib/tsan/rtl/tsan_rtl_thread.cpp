@@ -11,10 +11,11 @@
 //===----------------------------------------------------------------------===//
 
 #include "sanitizer_common/sanitizer_placement_new.h"
-#include "tsan_rtl.h"
 #include "tsan_mman.h"
+#include "tsan_monitor.h"
 #include "tsan_platform.h"
 #include "tsan_report.h"
+#include "tsan_rtl.h"
 #include "tsan_sync.h"
 
 namespace __tsan {
@@ -24,21 +25,20 @@ namespace __tsan {
 ThreadContext::ThreadContext(Tid tid) : ThreadContextBase(tid), thr(), sync() {}
 
 #if !SANITIZER_GO
-ThreadContext::~ThreadContext() {
-}
+ThreadContext::~ThreadContext() {}
 #endif
 
 void ThreadContext::OnReset() { CHECK(!sync); }
 
 #if !SANITIZER_GO
 struct ThreadLeak {
-  ThreadContext *tctx;
+  ThreadContext* tctx;
   int count;
 };
 
-static void CollectThreadLeaks(ThreadContextBase *tctx_base, void *arg) {
-  auto &leaks = *static_cast<Vector<ThreadLeak> *>(arg);
-  auto *tctx = static_cast<ThreadContext *>(tctx_base);
+static void CollectThreadLeaks(ThreadContextBase* tctx_base, void* arg) {
+  auto& leaks = *static_cast<Vector<ThreadLeak>*>(arg);
+  auto* tctx = static_cast<ThreadContext*>(tctx_base);
   if (tctx->detached || tctx->status != ThreadStatusFinished)
     return;
   for (uptr i = 0; i < leaks.Size(); i++) {
@@ -54,15 +54,18 @@ static void CollectThreadLeaks(ThreadContextBase *tctx_base, void *arg) {
 // Disabled on Mac because lldb test TestTsanBasic fails:
 // https://reviews.llvm.org/D112603#3163158
 #if !SANITIZER_GO && !SANITIZER_APPLE
-static void ReportIgnoresEnabled(ThreadContext *tctx, IgnoreSet *set) {
+static void ReportIgnoresEnabled(ThreadContext* tctx, IgnoreSet* set) {
   if (tctx->tid == kMainTid) {
     Printf("ThreadSanitizer: main thread finished with ignores enabled\n");
   } else {
-    Printf("ThreadSanitizer: thread T%d %s finished with ignores enabled,"
-      " created at:\n", tctx->tid, tctx->name);
+    Printf(
+        "ThreadSanitizer: thread T%d %s finished with ignores enabled,"
+        " created at:\n",
+        tctx->tid, tctx->name);
     PrintStack(SymbolizeStackId(tctx->creation_stack_id));
   }
-  Printf("  One of the following ignores was not ended"
+  Printf(
+      "  One of the following ignores was not ended"
       " (in order of probability)\n");
   for (uptr i = 0; i < set->Size(); i++) {
     Printf("  Ignore was enabled at:\n");
@@ -71,7 +74,7 @@ static void ReportIgnoresEnabled(ThreadContext *tctx, IgnoreSet *set) {
   Die();
 }
 
-static void ThreadCheckIgnore(ThreadState *thr) {
+static void ThreadCheckIgnore(ThreadState* thr) {
   if (ctx->after_multithreaded_fork)
     return;
   if (thr->ignore_reads_and_writes)
@@ -80,10 +83,10 @@ static void ThreadCheckIgnore(ThreadState *thr) {
     ReportIgnoresEnabled(thr->tctx, &thr->sync_ignore_set);
 }
 #else
-static void ThreadCheckIgnore(ThreadState *thr) {}
+static void ThreadCheckIgnore(ThreadState* thr) {}
 #endif
 
-void ThreadFinalize(ThreadState *thr) {
+void ThreadFinalize(ThreadState* thr) {
   ThreadCheckIgnore(thr);
 #if !SANITIZER_GO
   if (!ShouldReport(thr, ReportTypeThreadLeak))
@@ -101,19 +104,19 @@ void ThreadFinalize(ThreadState *thr) {
 #endif
 }
 
-int ThreadCount(ThreadState *thr) {
+int ThreadCount(ThreadState* thr) {
   uptr result;
   ctx->thread_registry.GetNumberOfThreads(0, 0, &result);
   return (int)result;
 }
 
 struct OnCreatedArgs {
-  VectorClock *sync;
+  VectorClock* sync;
   uptr sync_epoch;
   StackID stack;
 };
 
-Tid ThreadCreate(ThreadState *thr, uptr pc, uptr uid, bool detached) {
+Tid ThreadCreate(ThreadState* thr, uptr pc, uptr uid, bool detached) {
   // The main thread and GCD workers don't have a parent thread.
   Tid parent = kInvalidTid;
   OnCreatedArgs arg = {nullptr, 0, kInvalidStackID};
@@ -132,8 +135,8 @@ Tid ThreadCreate(ThreadState *thr, uptr pc, uptr uid, bool detached) {
   return tid;
 }
 
-void ThreadContext::OnCreated(void *arg) {
-  OnCreatedArgs *args = static_cast<OnCreatedArgs *>(arg);
+void ThreadContext::OnCreated(void* arg) {
+  OnCreatedArgs* args = static_cast<OnCreatedArgs*>(arg);
   sync = args->sync;
   sync_epoch = args->sync_epoch;
   creation_stack_id = args->stack;
@@ -142,14 +145,14 @@ void ThreadContext::OnCreated(void *arg) {
 extern "C" void __tsan_stack_initialization() {}
 
 struct OnStartedArgs {
-  ThreadState *thr;
+  ThreadState* thr;
   uptr stk_addr;
   uptr stk_size;
   uptr tls_addr;
   uptr tls_size;
 };
 
-void ThreadStart(ThreadState *thr, Tid tid, tid_t os_id,
+void ThreadStart(ThreadState* thr, Tid tid, tid_t os_id,
                  ThreadType thread_type) {
   ctx->thread_registry.StartThread(tid, os_id, thread_type, thr);
   if (!thr->ignore_sync) {
@@ -197,10 +200,13 @@ void ThreadStart(ThreadState *thr, Tid tid, tid_t os_id,
       ImitateTlsWrite(thr, tls_addr, tls_size);
   }
 #endif
+
+  MonitorThreadStart(thr);
+  // TODO: setup monitor
 }
 
-void ThreadContext::OnStarted(void *arg) {
-  thr = static_cast<ThreadState *>(arg);
+void ThreadContext::OnStarted(void* arg) {
+  thr = static_cast<ThreadState*>(arg);
   DPrintf("#%d: ThreadStart\n", tid);
   new (thr) ThreadState(tid);
   if (common_flags()->detect_deadlocks)
@@ -211,9 +217,10 @@ void ThreadContext::OnStarted(void *arg) {
 #endif
 }
 
-void ThreadFinish(ThreadState *thr) {
+void ThreadFinish(ThreadState* thr) {
   DPrintf("#%d: ThreadFinish\n", thr->tid);
   ThreadCheckIgnore(thr);
+  MonitorThreadFinish(thr);
   if (thr->stk_addr && thr->stk_size)
     DontNeedShadowFor(thr->stk_addr, thr->stk_size);
   if (thr->tls_addr && thr->tls_size)
@@ -270,7 +277,7 @@ void ThreadContext::OnFinished() {
     trace.parts_allocated = 1;
   }
   // From now on replay will use trace->final_pos.
-  trace.final_pos = (Event *)atomic_load_relaxed(&thr->trace_pos);
+  trace.final_pos = (Event*)atomic_load_relaxed(&thr->trace_pos);
   atomic_store_relaxed(&thr->trace_pos, 0);
   thr->tctx = nullptr;
   thr = nullptr;
@@ -278,19 +285,19 @@ void ThreadContext::OnFinished() {
 
 struct ConsumeThreadContext {
   uptr uid;
-  ThreadContextBase *tctx;
+  ThreadContextBase* tctx;
 };
 
-Tid ThreadConsumeTid(ThreadState *thr, uptr pc, uptr uid) {
+Tid ThreadConsumeTid(ThreadState* thr, uptr pc, uptr uid) {
   return ctx->thread_registry.ConsumeThreadUserId(uid);
 }
 
 struct JoinArg {
-  VectorClock *sync;
+  VectorClock* sync;
   uptr sync_epoch;
 };
 
-void ThreadJoin(ThreadState *thr, uptr pc, Tid tid) {
+void ThreadJoin(ThreadState* thr, uptr pc, Tid tid) {
   CHECK_GT(tid, 0);
   DPrintf("#%d: ThreadJoin tid=%d\n", thr->tid, tid);
   JoinArg arg = {};
@@ -303,8 +310,8 @@ void ThreadJoin(ThreadState *thr, uptr pc, Tid tid) {
   Free(arg.sync);
 }
 
-void ThreadContext::OnJoined(void *ptr) {
-  auto arg = static_cast<JoinArg *>(ptr);
+void ThreadContext::OnJoined(void* ptr) {
+  auto arg = static_cast<JoinArg*>(ptr);
   arg->sync = sync;
   arg->sync_epoch = sync_epoch;
   sync = nullptr;
@@ -313,33 +320,33 @@ void ThreadContext::OnJoined(void *ptr) {
 
 void ThreadContext::OnDead() { CHECK_EQ(sync, nullptr); }
 
-void ThreadDetach(ThreadState *thr, uptr pc, Tid tid) {
+void ThreadDetach(ThreadState* thr, uptr pc, Tid tid) {
   CHECK_GT(tid, 0);
   ctx->thread_registry.DetachThread(tid, thr);
 }
 
-void ThreadContext::OnDetached(void *arg) { Free(sync); }
+void ThreadContext::OnDetached(void* arg) { Free(sync); }
 
-void ThreadNotJoined(ThreadState *thr, uptr pc, Tid tid, uptr uid) {
+void ThreadNotJoined(ThreadState* thr, uptr pc, Tid tid, uptr uid) {
   CHECK_GT(tid, 0);
   ctx->thread_registry.SetThreadUserId(tid, uid);
 }
 
-void ThreadSetName(ThreadState *thr, const char *name) {
+void ThreadSetName(ThreadState* thr, const char* name) {
   ctx->thread_registry.SetThreadName(thr->tid, name);
 }
 
 #if !SANITIZER_GO
-void FiberSwitchImpl(ThreadState *from, ThreadState *to) {
-  Processor *proc = from->proc();
+void FiberSwitchImpl(ThreadState* from, ThreadState* to) {
+  Processor* proc = from->proc();
   ProcUnwire(proc, from);
   ProcWire(proc, to);
   set_cur_thread(to);
 }
 
-ThreadState *FiberCreate(ThreadState *thr, uptr pc, unsigned flags) {
-  void *mem = Alloc(sizeof(ThreadState));
-  ThreadState *fiber = static_cast<ThreadState *>(mem);
+ThreadState* FiberCreate(ThreadState* thr, uptr pc, unsigned flags) {
+  void* mem = Alloc(sizeof(ThreadState));
+  ThreadState* fiber = static_cast<ThreadState*>(mem);
   internal_memset(fiber, 0, sizeof(*fiber));
   Tid tid = ThreadCreate(thr, pc, 0, true);
   FiberSwitchImpl(thr, fiber);
@@ -348,15 +355,15 @@ ThreadState *FiberCreate(ThreadState *thr, uptr pc, unsigned flags) {
   return fiber;
 }
 
-void FiberDestroy(ThreadState *thr, uptr pc, ThreadState *fiber) {
+void FiberDestroy(ThreadState* thr, uptr pc, ThreadState* fiber) {
   FiberSwitchImpl(thr, fiber);
   ThreadFinish(fiber);
   FiberSwitchImpl(fiber, thr);
   Free(fiber);
 }
 
-void FiberSwitch(ThreadState *thr, uptr pc,
-                 ThreadState *fiber, unsigned flags) {
+void FiberSwitch(ThreadState* thr, uptr pc, ThreadState* fiber,
+                 unsigned flags) {
   if (!(flags & FiberSwitchFlagNoSync))
     Release(thr, pc, (uptr)fiber);
   FiberSwitchImpl(thr, fiber);
