@@ -39,6 +39,16 @@ void SyncVar::Reset() {
   atomic_store_relaxed(&flags, 0);
   Free(clock);
   Free(read_clock);
+  if (monitor) {
+    DestroyAndFree(monitor);
+    monitor = nullptr;
+  }
+}
+
+Monitor &SyncVar::GetOrCreateMonitor(Tid tid) {
+  if (!monitor)
+    monitor = New<Monitor>(tid);
+  return *monitor;
 }
 
 MetaMap::MetaMap()

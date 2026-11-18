@@ -89,6 +89,8 @@ void MutexCreate(ThreadState *thr, uptr pc, uptr addr, u32 flagz) {
     MemoryAccess(thr, pc, addr, 1, kAccessWrite);
   SlotLocker locker(thr);
   auto s = ctx->metamap.GetSyncOrCreate(thr, pc, addr, true);
+  Lock lock(&s->mtx);
+  s->GetOrCreateMonitor(thr->tid);
   s->SetFlags(flagz & MutexCreationFlagMask);
   // Save stack in the case the sync object was created before as atomic.
   if (!SANITIZER_GO && s->creation_stack_id == kInvalidStackID)
@@ -167,6 +169,7 @@ void MutexPostLock(ThreadState *thr, uptr pc, uptr addr, u32 flagz, int rec) {
   bool report_double_lock = false;
   bool pre_lock = false;
   bool first = false;
+  SyncVar *monitor_sync = nullptr;
   StackID creation_stack_id = kInvalidStackID;
   {
     SlotLocker locker(thr);
@@ -175,6 +178,7 @@ void MutexPostLock(ThreadState *thr, uptr pc, uptr addr, u32 flagz, int rec) {
     RecordMutexLock(thr, pc, addr, creation_stack_id, true);
     {
       Lock lock(&s->mtx);
+      s->GetOrCreateMonitor(thr->tid);
       first = s->recursion == 0;
       s->UpdateFlags(flagz);
       if (s->owner_tid == kInvalidTid) {
@@ -192,6 +196,8 @@ void MutexPostLock(ThreadState *thr, uptr pc, uptr addr, u32 flagz, int rec) {
         if (!thr->ignore_sync) {
           thr->clock.Acquire(s->clock);
           thr->clock.Acquire(s->read_clock);
+          if (s->owner_tid == thr->tid && !s->IsFlagSet(MutexFlagBroken))
+            monitor_sync = s;
         }
       }
       if (first && common_flags()->detect_deadlocks) {
@@ -204,6 +210,9 @@ void MutexPostLock(ThreadState *thr, uptr pc, uptr addr, u32 flagz, int rec) {
       }
     }
   }
+  // The application lock keeps the metadata alive while reporting is allowed.
+  if (monitor_sync)
+    MonitorAcquire(thr, pc, monitor_sync);
   if (report_double_lock)
     ReportMutexMisuse(thr, pc, ReportTypeMutexDoubleLock, addr,
                       creation_stack_id);
@@ -239,6 +248,7 @@ int MutexUnlock(ThreadState *thr, uptr pc, uptr addr, u32 flagz) {
         if (s->recursion == 0) {
           s->owner_tid = kInvalidTid;
           if (!thr->ignore_sync) {
+            MonitorRelease(thr, s);
             thr->clock.ReleaseStore(&s->clock);
             released = true;
           }
@@ -284,6 +294,7 @@ void MutexPostReadLock(ThreadState *thr, uptr pc, uptr addr, u32 flagz) {
     MemoryAccess(thr, pc, addr, 1, kAccessRead | kAccessAtomic);
   bool report_bad_lock = false;
   bool pre_lock = false;
+  SyncVar *monitor_sync = nullptr;
   StackID creation_stack_id = kInvalidStackID;
   {
     SlotLocker locker(thr);
@@ -291,7 +302,9 @@ void MutexPostReadLock(ThreadState *thr, uptr pc, uptr addr, u32 flagz) {
     creation_stack_id = s->creation_stack_id;
     RecordMutexLock(thr, pc, addr, creation_stack_id, false);
     {
-      ReadLock lock(&s->mtx);
+      // Lazy monitor creation requires exclusive access to the metadata.
+      Lock lock(&s->mtx);
+      s->GetOrCreateMonitor(thr->tid);
       s->UpdateFlags(flagz);
       if (s->owner_tid != kInvalidTid) {
         if (flags()->report_mutex_bugs && !s->IsFlagSet(MutexFlagBroken)) {
@@ -299,8 +312,11 @@ void MutexPostReadLock(ThreadState *thr, uptr pc, uptr addr, u32 flagz) {
           report_bad_lock = true;
         }
       }
-      if (!thr->ignore_sync)
+      if (!thr->ignore_sync) {
         thr->clock.Acquire(s->clock);
+        if (s->owner_tid == kInvalidTid && !s->IsFlagSet(MutexFlagBroken))
+          monitor_sync = s;
+      }
       s->last_lock = thr->fast_state;
       if (common_flags()->detect_deadlocks) {
         pre_lock = (flagz & MutexFlagDoPreLockOnPostLock) &&
@@ -312,6 +328,8 @@ void MutexPostReadLock(ThreadState *thr, uptr pc, uptr addr, u32 flagz) {
       }
     }
   }
+  if (monitor_sync)
+    MonitorAcquire(thr, pc, monitor_sync);
   if (report_bad_lock)
     ReportMutexMisuse(thr, pc, ReportTypeMutexBadReadLock, addr,
                       creation_stack_id);
@@ -342,6 +360,8 @@ void MutexReadUnlock(ThreadState *thr, uptr pc, uptr addr) {
         }
       }
       if (!thr->ignore_sync) {
+        if (s->owner_tid == kInvalidTid && !s->IsFlagSet(MutexFlagBroken))
+          MonitorRelease(thr, s);
         thr->clock.Release(&s->read_clock);
         released = true;
       }
@@ -381,6 +401,8 @@ void MutexReadOrWriteUnlock(ThreadState *thr, uptr pc, uptr addr) {
         // Seems to be read unlock.
         write = false;
         if (!thr->ignore_sync) {
+          if (!s->IsFlagSet(MutexFlagBroken))
+            MonitorRelease(thr, s);
           thr->clock.Release(&s->read_clock);
           released = true;
         }
@@ -391,6 +413,7 @@ void MutexReadOrWriteUnlock(ThreadState *thr, uptr pc, uptr addr) {
         if (s->recursion == 0) {
           s->owner_tid = kInvalidTid;
           if (!thr->ignore_sync) {
+            MonitorRelease(thr, s);
             thr->clock.ReleaseStore(&s->clock);
             released = true;
           }

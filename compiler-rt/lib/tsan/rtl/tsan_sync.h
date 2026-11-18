@@ -22,6 +22,8 @@
 
 namespace __tsan {
 
+class Monitor;
+
 // These need to match __tsan_mutex_* flags defined in tsan_interface.h.
 // See documentation there as well.
 enum MutexFlags {
@@ -63,9 +65,14 @@ struct SyncVar {
   DDMutex dd;
   VectorClock *read_clock;  // Used for rw mutexes only.
   VectorClock *clock;
+  // Owned transaction state for this lock; protected by mtx.
+  Monitor *monitor = nullptr;
 
   void Init(ThreadState *thr, uptr pc, uptr addr, bool save_stack);
   void Reset();
+
+  // Caller must hold mtx exclusively. Atomic-only SyncVars stay unallocated.
+  Monitor &GetOrCreateMonitor(Tid tid);
 
   bool IsFlagSet(u32 f) const {
     return atomic_load_relaxed(&flags) & f;

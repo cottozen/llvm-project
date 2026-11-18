@@ -422,4 +422,14 @@ TEST(OwnedTxnClocks, SelfAssignmentPreservesClocks) {
   EXPECT_EQ(clock.Get(1), 7u);
 }
 
+TEST(Monitor, InactiveLockHandoffsDoNotReportCycles) {
+  Monitor first(0);
+  Monitor second(1);
+  Monitor lock(0);
+  first.Release(lock);
+  EXPECT_EQ(second.Acquire(lock), AcquireResult::Ok);
+  second.Release(lock);
+  EXPECT_EQ(first.Acquire(lock), AcquireResult::Ok);
+}
+
 }  // namespace __tsan

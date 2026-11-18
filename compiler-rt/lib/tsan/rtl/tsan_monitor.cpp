@@ -3,6 +3,7 @@
 #include "sanitizer_common/sanitizer_placement_new.h"
 #include "tsan_mman.h"
 #include "tsan_rtl.h"
+#include "tsan_sync.h"
 
 namespace __tsan {
 
@@ -201,7 +202,7 @@ bool ConflictGraph::TopSort(Vector<uptr>& order) const {
 AcquireResult Monitor::Acquire(Monitor& l) {
   const TxnId incoming_last =
       thread_id_ < l.last_.Size() ? l.last_.Get(thread_id_) : 0;
-  if (l.last_used_by_ != kInvalidTid &&
+  if (active_[thread_id_] && l.last_used_by_ != kInvalidTid &&
       last_.Get(thread_id_) == incoming_last && l.last_used_by_ != thread_id_) {
     return AcquireResult::IncreasingCycle;
   }
@@ -316,7 +317,6 @@ void MonitorRead(ThreadState* thr, uptr pc, uptr addr, uptr size) {
   }
 }
 void MonitorWrite(ThreadState* thr, uptr pc, uptr addr, uptr size) {
-  // grapb ctx lock
   MonitorRegistry& registry = ctx->monitor_registry;
   MemoryState* addr_state = registry.GetOrCreateMemoryState(addr);
   AcquireResult conflict = AcquireResult::Ok;
@@ -344,6 +344,25 @@ void MonitorWrite(ThreadState* thr, uptr pc, uptr addr, uptr size) {
   if (conflict != AcquireResult::Ok) {
     ReportTransactionConflict(thr, pc, addr, size, conflict);
   }
+}
+
+void MonitorAcquire(ThreadState* thr, uptr pc, SyncVar* sync) {
+  CheckedMutex::CheckNoLocks();
+  AcquireResult conflict;
+  uptr addr;
+  {
+    Lock lock(&sync->mtx);
+    addr = sync->addr;
+    conflict = thr->monitor.Acquire(sync->GetOrCreateMonitor(thr->tid));
+  }
+  if (conflict != AcquireResult::Ok) {
+    ReportTransactionConflict(thr, pc, addr, 1, conflict);
+  }
+}
+
+void MonitorRelease(ThreadState* thr, SyncVar* sync) {
+  sync->mtx.CheckWriteLocked();
+  thr->monitor.Release(sync->GetOrCreateMonitor(thr->tid));
 }
 
 void MonitorThreadStart(ThreadState* thr) {

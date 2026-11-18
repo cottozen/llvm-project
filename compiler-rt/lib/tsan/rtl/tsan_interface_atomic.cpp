@@ -223,6 +223,7 @@ static a128 NoTsanAtomicLoad(const volatile a128 *a, morder mo) {
 template <typename T>
 static T AtomicLoad(ThreadState *thr, uptr pc, const volatile T *a, morder mo) {
   DCHECK(IsLoadOrder(mo));
+  MonitorRead(thr, pc, (uptr)a, sizeof(T));
   // This fast-path is critical for performance.
   // Assume the access is atomic.
   if (!IsAcquireOrder(mo)) {
@@ -262,6 +263,7 @@ template <typename T>
 static void AtomicStore(ThreadState *thr, uptr pc, volatile T *a, T v,
                         morder mo) {
   DCHECK(IsStoreOrder(mo));
+  MonitorWrite(thr, pc, (uptr)a, sizeof(T));
   MemoryAccess(thr, pc, (uptr)a, AccessSize<T>(), kAccessWrite | kAccessAtomic);
   // This fast-path is critical for performance.
   // Assume the access is atomic.

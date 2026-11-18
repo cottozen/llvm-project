@@ -9,6 +9,7 @@
 namespace __tsan {
 
 struct ThreadState;
+struct SyncVar;
 
 enum class AcquireResult {
   Ok,
@@ -176,7 +177,6 @@ struct MemoryState {
 
 struct MonitorRegistry {
   __sanitizer::DenseMap<uptr, MemoryState*> memory_monitors;
-  __sanitizer::DenseMap<uptr, Monitor*> lock_monitors;
   Mutex lock;
 
   MemoryState* GetOrCreateMemoryState(uptr addr);
@@ -184,6 +184,13 @@ struct MonitorRegistry {
 
 void MonitorRead(ThreadState* thr, uptr pc, uptr addr, uptr size);
 void MonitorWrite(ThreadState* thr, uptr pc, uptr addr, uptr size);
+
+// Caller decides whether synchronization is enabled and guarantees sync stays
+// alive during the call. Acquire takes sync->mtx internally and reports after
+// unlocking; call it without holding any runtime locks (including slot locks).
+void MonitorAcquire(ThreadState* thr, uptr pc, SyncVar* sync);
+// Release requires the caller to hold sync->mtx exclusively.
+void MonitorRelease(ThreadState* thr, SyncVar* sync);
 
 void MonitorThreadStart(ThreadState* thr);
 void MonitorThreadFinish(ThreadState* thr);
